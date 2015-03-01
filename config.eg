@@ -1,0 +1,5 @@
+{
+    pg_string => 'postgresql://username:password@127.0.0.1/patches',
+    secret => '7cd77588-5451-4460-a3ae-2f4b40f2196e',
+    password => '12345',
+};
