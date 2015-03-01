@@ -8,11 +8,14 @@
         - Minion workers
         - Enqueing jobs
 
-    The web interface is used to display the system's patch level, and the ability to Update or Reboot a box.
+    The web interface is used to display the system's patch level, and the
+    ability to Update or Reboot a box.
 
-    The minion workers are there to query the patch level, update the patches, or reboot the box.
+    The minion workers are there to query the patch level, update the patches,
+    or reboot the box.
 
-    Enqueing jobs is usually done from either the command-line, cron, or the web interface.
+    Enqueing jobs is usually done from either the command-line, cron, or the
+    web interface.
 
 ### Installation
 
