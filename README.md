@@ -27,7 +27,7 @@
 
     2. Minion workers 
 
-        - $ perl Patches.pl minion worker
+        - $ perl Patches.pl minion worker -t $(hostname)
 
         - One per watched host is needed.
 
