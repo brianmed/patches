@@ -70,7 +70,7 @@ app->minion->add_task(reboot => sub {
     }
 
     eval {
-        my $ret = system("/usr/bin/sudo init 6");
+        my $ret = system("/usr/bin/sudo /sbin/init 6");
 
         my $exit = $?;
         my $exit_ret = $? >> 8;
@@ -239,26 +239,48 @@ get '/boxen' => sub {
             my $finished = $hash->{finished};
 
             my $action = "";
+            my $update = "";
+
+            my $query = $c->url_for("/query?hostname=$$worker{host}")->to_abs;
+            $query = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Query: Are you sure')) { location ='$query' }">Query</a>);
 
             if ("updates available" eq $status) {
                 $status = "Updates Available [$finished]";
-                my $update = $c->url_for("/update?hostname=$$worker{host}")->to_abs;
 
-                $action = qq(<a href="$update" class="btn btn-primary" role="button">Update</a>);
+                $update = $c->url_for("/update?hostname=$$worker{host}")->to_abs;
+                $update = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Update: Are you sure')) { location ='$update' }">Update</a>);
             }
             elsif ("no updates" eq $status) {
                 $status = "No Updates [$finished]";
             }
 
             my $reboot = $c->url_for("/reboot?hostname=$$worker{host}")->to_abs;
-            $action .= qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Are you sure')) { window.open('$reboot') }">Reboot</a>);
+            $reboot = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { location ='$reboot' }">Reboot</a>);
+
+            $action = qq(
+                <div class="btn-group" role="group" aria-label="...">
+                    $query
+                    $update
+                    $reboot
+                </div>
+            );
 
             my $row = { hostname => "$$worker{host} [$active]", status => $status, action => $action };
             push(@workers, $row);
         }
         else {
             my $reboot = $c->url_for("/reboot?hostname=$$worker{host}")->to_abs;
-            my $action = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Are you sure')) { window.open('$reboot') }">Reboot</a>);
+            my $query = $c->url_for("/query?hostname=$$worker{host}")->to_abs;
+
+            $query = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Query: Are you sure')) { location ='$query' }">Query</a>);
+            $reboot = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { location ='$reboot' }">Reboot</a>);
+
+            my $action = qq(
+                <div class="btn-group" role="group" aria-label="...">
+                    $query
+                    $reboot
+                </div>
+            );
 
             my $row = { hostname => "$$worker{host} [0]", status => "No Results", action => $action };
             push(@workers, $row);
@@ -266,6 +288,19 @@ get '/boxen' => sub {
     }
 
     $c->render(template => 'boxen', workers => \@workers, now => scalar(localtime(time)));
+};
+
+get '/query' => sub {
+    my $c = shift;
+
+    my $hostname = $c->param("hostname");
+
+    $c->app->minion->enqueue(query => [$hostname]) if $hostname;
+
+    $c->flash(message => "Query scheduled: $hostname");
+
+    my $url = $c->url_for('/boxen');
+    return($c->redirect_to($url));
 };
 
 get '/update' => sub {
