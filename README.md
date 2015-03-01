@@ -34,3 +34,8 @@
     3. Enqueing jobs
 
         - $ perl Patches.pl enqueue query
+
+### Caveats
+
+    1. CentOS centric; will glady update (with help) for other distributions,
+       and hopefully BSD and Windows (maybe?).

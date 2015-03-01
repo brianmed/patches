@@ -28,46 +28,13 @@ sub run {
 
     die("No TASK given\n") unless $args[0];
 
-    $self->app->minion->enqueue($args[0] => [hostname]);
+    $self->app->minion->enqueue(&hostname => $args[0]);
 }
 
-package main;
+package Patches::Task;
 
-use Mojolicious::Lite;
-use Mojo::JSON qw(decode_json);
-use Mojo::Util qw(slurp);
-use Mojo::Pg;
-use Sys::Hostname qw(hostname);
-use File::Temp qw(tempfile);
-
-plugin Config => {file => '/opt/patches.config'};
-app->secrets([app->config->{secret}]);
-
-plugin Minion => {Pg => app->config->{pg_string}};
-plugin qw(bootstrap3);
-
-helper pg => sub { state $pg = Mojo::Pg->new(app->config->{pg_string}) };
-
-app->minion->on(retry => sub {
-    my ($minion, $job_id) = @_;
-
-    $minion->backend->retry_job($job_id);
-
-    sleep(7);
-});
-
-app->minion->add_task(reboot => sub {
+sub reboot {
     my $job = shift;
-    my $hostname = shift;
-
-    # Would be nice to be able to enqueue a specific worker?
-    unless ($hostname eq hostname) {
-        $job->finish({ status => "retry" });
-
-        $job->minion->emit(retry => $$job{id});
-
-        return;
-    }
 
     eval {
         my $ret = system("/usr/bin/sudo /sbin/init 6");
@@ -92,20 +59,10 @@ app->minion->add_task(reboot => sub {
     else {
         $job->finish({ status => "Rebooting" });
     }
-});
+}
 
-app->minion->add_task(query => sub {
+sub query {
     my $job = shift;
-    my $hostname = shift;
-
-    # Would be nice to be able to enqueue a specific worker?
-    unless ($hostname eq hostname) {
-        $job->finish({ status => "retry" });
-
-        $job->minion->emit(retry => $$job{id});
-
-        return;
-    }
 
     eval {
         my $ret = system("/usr/bin/yum --quiet check-update 1>/dev/null");
@@ -136,20 +93,10 @@ app->minion->add_task(query => sub {
     else {
         $job->finish({ status => "no updates" });
     }
-});
+}
 
-app->minion->add_task(update => sub {
+sub update {
     my $job = shift;
-    my $hostname = shift;
-
-    # Would be nice to be able to enqueue a specific worker?
-    unless ($hostname eq hostname) {
-        $job->finish({ status => "retry" });
-
-        $job->minion->emit(retry => $$job{id});
-
-        return;
-    }
 
     my ($output, $errput); 
     eval {
@@ -181,6 +128,32 @@ app->minion->add_task(update => sub {
     else {
         $job->finish({ status => "Yum finished", stdout => slurp($output), stderr => slurp($errput) });
     }
+}
+
+package main;
+
+use Mojolicious::Lite;
+use Mojo::JSON qw(decode_json);
+use Mojo::Util qw(slurp);
+use Mojo::Pg;
+use Sys::Hostname qw(hostname);
+use File::Temp qw(tempfile);
+
+plugin Config => {file => '/opt/patches.config'};
+app->secrets([app->config->{secret}]);
+
+plugin Minion => {Pg => app->config->{pg_string}};
+plugin qw(bootstrap3);
+
+helper pg => sub { state $pg = Mojo::Pg->new(app->config->{pg_string}) };
+
+app->minion->add_task(&hostname => sub {
+    my $job = shift;
+    my $task = shift;
+
+    my $sub = \&{ "Patches::Task::$task" };
+    
+    $sub->($job);
 });
 
 get '/' => sub {
@@ -295,7 +268,7 @@ get '/query' => sub {
 
     my $hostname = $c->param("hostname");
 
-    $c->app->minion->enqueue(query => [$hostname]) if $hostname;
+    $c->app->minion->enqueue($hostname => ["query"]) if $hostname;
 
     $c->flash(message => "Query scheduled: $hostname");
 
@@ -308,7 +281,7 @@ get '/update' => sub {
 
     my $hostname = $c->param("hostname");
 
-    $c->app->minion->enqueue(update => [$hostname]) if $hostname;
+    $c->app->minion->enqueue($hostname => ["update"]) if $hostname;
 
     $c->flash(message => "Update scheduled: $hostname");
 
@@ -321,7 +294,7 @@ get '/reboot' => sub {
 
     my $hostname = $c->param("hostname");
 
-    $c->app->minion->enqueue(reboot => [$hostname]) if $hostname;
+    $c->app->minion->enqueue($hostname => ["reboot"]) if $hostname;
 
     $c->flash(message => "Reboot scheduled: $hostname");
 
