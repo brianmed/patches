@@ -1,20 +1,5 @@
 #!/opt/perl
 
-package Mojolicious::Command::crontab;
-
-use Mojo::Base 'Mojolicious::Command';
-use Sys::Hostname qw(hostname);
-use FindBin qw($Bin $Script);
-
-has description => 'Example crontab command';
-has usage       => "Usage: APPLICATION crontab\n";
-
-sub run {
-    my ($self, @args) = @_;
-
-    say("5       0       *       *       *       $Bin/$Script enqueue query");
-}
-
 package Mojolicious::Command::enqueue;
 
 use Mojo::Base 'Mojolicious::Command';

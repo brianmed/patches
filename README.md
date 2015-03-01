@@ -35,6 +35,10 @@
 
         - $ perl Patches.pl enqueue query
 
+        - For example, in a crontab the box can be queried daily with:
+
+            5       0       *       *       *       /opt/patches/Patches.pl enqueue query
+
 ### Caveats
 
     1. CentOS centric; will glady update (with help) for other distributions,
