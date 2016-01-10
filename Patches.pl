@@ -98,7 +98,7 @@ sub query {
 
         my $exit = $?;
         my $exit_ret = $? >> 8;
-    
+
         if ($ret) {
             if ($exit == -1) {
                 die("failed to execute yum: $!\n");
@@ -266,7 +266,7 @@ get '/boxen' => sub {
         my $action = qq(
             <div class="btn-group" role="group" aria-label="...">
                 $query
-		$update
+                $update
                 $reboot
             </div>
         );
@@ -296,7 +296,7 @@ get "/v1/remote/:task/:box_id" => sub {
         return;
     }
 
-    $c->ua->post("$box->{url}/v1/task" => json => { api_key => $box->{api_key}, task => $task } => sub {
+    $c->ua->inactivity_timeout(3600)->post("$box->{url}/v1/task" => json => { api_key => $box->{api_key}, task => $task } => sub {
         my ($ua, $tx) = @_;
 
         if ($tx->success) {
@@ -319,14 +319,9 @@ post '/v1/task' => sub {
        
     $sub->($c, $task);
 
-    if ("query" eq $task || "update" eq $task) {
-        my $hash = $c->sql->db->query("select status from status order by id desc limit 1")->hash;
+    my $hash = $c->sql->db->query("select status from status order by id desc limit 1")->hash;
 
-        $c->render(json => {success => 1, message => $hash->{status}});
-    }
-    else {
-        $c->render(json => {success => 0, message => "We made it to else"});
-    }
+    $c->render(json => {success => 1, message => $hash->{status}});
 } => "api_task";
 
 push @{app->commands->namespaces}, 'Patches::Command';
@@ -435,21 +430,21 @@ __DATA__
 <script>
     $("#refresh").on("click", function (e) {
         $("img[id^='refresh_']").each(function (e) {
-            refreshStatus(this);
+            refreshStatus(this, "query");
         });
     });
 
     $("img[id^='refresh_']").on("click", function (e) {
-        refreshStatus(this);
+        refreshStatus(this, "query");
     });
 
-    function refreshStatus(elem) {
+    function refreshStatus(elem, task) {
         var idx = $(elem).data('idx');
 
         $('#status_' + idx).hide();
         $('#refresh_' + idx).show();
 
-        $.getJSON("/v1/remote/query/" + idx, function(data) {
+        $.getJSON("/v1/remote/" + task + "/" + idx, function(data) {
             $('#status_' + idx).html(data.message);
 
             $('#refresh_' + idx).hide();
@@ -458,14 +453,7 @@ __DATA__
     }
 
     function boxenTask(elem, idx, task) {
-        if ("reboot" === task || "update" === task) {
-            $.ajax({
-              url: "/v1/remote/" + task + "/" + idx
-            });
-        }
-        else {
-            refreshStatus(elem);
-        }
+        refreshStatus(elem, task);
     }
 </script>
 
