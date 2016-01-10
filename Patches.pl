@@ -1,25 +1,57 @@
 #!/opt/perl
 
-package Mojolicious::Command::enqueue;
+package Patches::Command::patches;
+
+use Mojo::Base 'Mojolicious::Commands';
+
+has description => 'Patches';
+has hint        => <<EOF;
+
+See 'APPLICATION patches help COMMAND' for more information on a specific
+command.
+EOF
+has message    => sub { "Commands:\n" };
+has namespaces => sub { ['Patches::Command::patches'] };
+
+sub help { shift->run(@_) }
+
+package Patches::Command::patches::migrate;
 
 use Mojo::Base 'Mojolicious::Command';
-use Sys::Hostname qw(hostname);
 
-has description => 'enqueue patch update check for this host';
-has usage       => "Usage: APPLICATION enqueue TASK\n";
+has description => 'migrate database to latest version';
+has usage       => "Usage: APPLICATION patches migrate\n";
 
 sub run {
-    my ($self, @args) = @_;
+    my ($self) = @_;
 
-    die("No TASK given\n") unless $args[0];
+    $self->app->sql->migrations->from_file($self->app->home->rel_file('migrate.sql'))->migrate;
+}
 
-    $self->app->minion->enqueue(&hostname => $args[0]);
+package Patches::Command::patches::remote;
+
+use Mojo::Base 'Mojolicious::Command';
+
+has description => 'add remote box to the db';
+has usage       => "Usage: APPLICATION patches remote HOSTNAME URL API_KEY\n";
+
+sub run {
+    my ($self, $hostname, $url, $api_key) = @_;
+
+    die("No HOSTNAME given\n") unless $hostname;
+    die("No URL given\n") unless $url;
+    die("No API_KEY given\n") unless $api_key;
+
+    $self->app->sql->db->query('INSERT INTO manager (hostname, url, api_key) VALUES (?, ?, ?)', $hostname, $url, $api_key);
 }
 
 package Patches::Task;
 
+use Mojo::Util qw(slurp);
+use File::Temp qw(tempfile);
+
 sub reboot {
-    my $job = shift;
+    my $c = shift;
 
     eval {
         my $ret = system("/usr/bin/sudo /sbin/init 6");
@@ -28,7 +60,7 @@ sub reboot {
         my $exit_ret = $? >> 8;
     
         if ($ret) {
-            if ($? == -1) {
+            if ($exit == -1) {
                 die("failed to execute init 6: $!\n");
             }
             else {
@@ -39,28 +71,36 @@ sub reboot {
     if ($@) {
         my $err = $@;
         chomp($err);
-        $job->finish({ status => $err });
+        $c->app->sql->db->query('INSERT INTO status (status) VALUES (?)', $err);
     }
     else {
-        $job->finish({ status => "Rebooting" });
+        $c->app->sql->db->query('INSERT INTO status (status) VALUES (?)', "Rebooting");
     }
 }
 
 sub query {
-    my $job = shift;
+    my $c = shift;
+
+    my ($output);
+    my ($errput);
+
+    my $ret = {};
 
     eval {
-        my $ret = system("/usr/bin/yum --quiet check-update 1>/dev/null");
+        (undef, $output) = tempfile("yum_query_stdout_XXXXXX", TMPDIR => 1, UNLINK => 0);
+        (undef, $errput) = tempfile("yum_query_stderr_XXXXXX", TMPDIR => 1, UNLINK => 0);
+
+        my $ret = system("/usr/bin/yum check-update 1>$output 2>$errput");
 
         my $exit = $?;
         my $exit_ret = $? >> 8;
     
         if ($ret) {
-            if ($? == -1) {
+            if ($exit == -1) {
                 die("failed to execute yum: $!\n");
             }
-            elsif ($? & 127) {
-                die(sprintf("yum died with signal %d, %s coredump\n", ($? & 127),  ($? & 128) ? 'with' : 'without'));
+            elsif ($exit & 127) {
+                die(sprintf("yum died with signal %d, %s coredump\n", ($exit & 127),  ($exit & 128) ? 'with' : 'without'));
             }
             elsif (100 == $exit_ret)  {
                 die("updates available\n");
@@ -73,15 +113,22 @@ sub query {
     if ($@) {
         my $err = $@;
         chomp($err);
-        $job->finish({ status => $err });
+
+        $ret = { status => $err, stdout => slurp($output), stderr => slurp($errput) };
+
+        $c->app->sql->db->query('INSERT INTO status (status, stdout, stderr) VALUES (?, ?, ?)', $err, slurp($output), slurp($errput));
     }
     else {
-        $job->finish({ status => "no updates" });
+        $ret = { status => "no updates", stdout => slurp($output), stderr => slurp($errput) };
+
+        $c->app->sql->db->query('INSERT INTO status (status, stdout, stderr) VALUES (?, ?, ?)', "no updates", slurp($output), slurp($errput));
     }
+
+    return $ret;
 }
 
 sub update {
-    my $job = shift;
+    my $c = shift;
 
     my ($output, $errput); 
     eval {
@@ -94,11 +141,11 @@ sub update {
         my $exit_ret = $? >> 8;
     
         if ($ret) {
-            if ($? == -1) {
+            if ($exit == -1) {
                 die("failed to execute yum: $!\n");
             }
-            elsif ($? & 127) {
-                die(sprintf("yum died with signal %d, %s coredump\n", ($? & 127),  ($? & 128) ? 'with' : 'without'));
+            elsif ($exit & 127) {
+                die(sprintf("yum died with signal %d, %s coredump\n", ($exit & 127),  ($exit & 128) ? 'with' : 'without'));
             }
             else {
                 die(sprintf("yum exited with value %d\n", $exit_ret));
@@ -108,10 +155,11 @@ sub update {
     if ($@) {
         my $err = $@;
         chomp($err);
-        $job->finish({ status => $err, stdout => slurp($output), stderr => slurp($errput) });
+
+        $c->finish({ status => $err, stdout => slurp($output), stderr => slurp($errput) });
     }
     else {
-        $job->finish({ status => "Yum finished", stdout => slurp($output), stderr => slurp($errput) });
+        $c->finish({ status => "Yum finished", stdout => slurp($output), stderr => slurp($errput) });
     }
 }
 
@@ -119,27 +167,17 @@ package main;
 
 use Mojolicious::Lite;
 use Mojo::JSON qw(decode_json);
-use Mojo::Util qw(slurp);
-use Mojo::Pg;
+use Mojo::SQLite;
 use Sys::Hostname qw(hostname);
-use File::Temp qw(tempfile);
 
 plugin Config => {file => '/opt/patches.config'};
 app->secrets([app->config->{secret}]);
 
-plugin Minion => {Pg => app->config->{pg_string}};
-plugin qw(bootstrap3);
+plugin AccessLog => {log => app->home->rel_file('log/access.log'), format => '%h %l %u %t "%r" %>s %b %D "%{Referer}i" "%{User-Agent}i"'};
 
-helper pg => sub { state $pg = Mojo::Pg->new(app->config->{pg_string}) };
+plugin qw(Bootstrap3);
 
-app->minion->add_task(&hostname => sub {
-    my $job = shift;
-    my $task = shift;
-
-    my $sub = \&{ "Patches::Task::$task" };
-    
-    $sub->($job);
-});
+helper sql => sub { state $sql = Mojo::SQLite->new(app->config->{sqlite_string}) };
 
 get '/' => sub {
     my $c = shift;
@@ -163,8 +201,32 @@ post '/' => sub {
     $c->render(template => 'index');
 };
 
-under sub {
+under(sub {
     my $c = shift;
+
+    if ($c->current_route =~ m/^api_/) {
+        unless ($c->req->json) {
+            $c->render(json => {status => "error", data => { message => "No JSON found" }});
+
+            return undef;
+        }
+
+        my $api_key = $c->req->json->{api_key};
+
+        unless ($api_key) {
+            $c->render(json => {status => "error", data => { message => "No API Key found" }});
+
+            return undef;
+        }
+
+        unless ($api_key eq app->config->{api_key}) {
+            $c->render(json => {status => "error", data => { message => "Credentials mis-match" }});
+
+            return undef;
+        }
+
+        return 1;
+    }
     
     # Authenticated
     my $password = $c->session("password") || "";
@@ -177,115 +239,89 @@ under sub {
     $c->redirect_to($url);
 
     return undef;
-};
+});
 
 get '/boxen' => sub {
     my $c = shift;
 
-    my $db = $c->pg->db;
+    my $db = $c->sql->db;
 
-    my @workers = ();
+    my $boxen = $c->sql->db->query("SELECT * FROM manager ORDER BY id")->hashes->to_array;
 
-    # Is there an API for this?
-    my $results = $db->query("select * from minion_workers");
-    while (my $worker = $results->hash) {
-        my $active  = $db->query("select count(*) from minion_jobs where worker = ? and state = 'active'", $$worker{id})->array->[0];
-        my $hash = $db->query("select result, finished from minion_jobs where worker = ? and state = 'finished' order by finished desc limit 1", $$worker{id})->expand->hash;
-    
-        if ($hash) {
-            my $status = $hash->{result}{status};
-            my $finished = $hash->{finished};
+    my @boxen = ();
 
-            my $action = "";
-            my $update = "";
+    foreach my $box (@{ $boxen }) {
+        my $reboot = $c->url_for("/reboot?box_id=$$box{id}")->to_abs;
+        my $query = $c->url_for("/query?box_id=$$box{id}")->to_abs;
 
-            my $query = $c->url_for("/query?hostname=$$worker{host}")->to_abs;
-            $query = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Query: Are you sure')) { location ='$query' }">Query</a>);
+        $query = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Query: Are you sure')) { location ='$query' }">Query</a>);
+        $reboot = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { location ='$reboot' }">Reboot</a>);
 
-            if ("updates available" eq $status) {
-                $status = "Updates Available [$finished]";
+        my $action = qq(
+            <div class="btn-group" role="group" aria-label="...">
+                $query
+                $reboot
+            </div>
+        );
 
-                $update = $c->url_for("/update?hostname=$$worker{host}")->to_abs;
-                $update = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Update: Are you sure')) { location ='$update' }">Update</a>);
-            }
-            elsif ("no updates" eq $status) {
-                $status = "No Updates [$finished]";
-            }
-
-            my $reboot = $c->url_for("/reboot?hostname=$$worker{host}")->to_abs;
-            $reboot = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { location ='$reboot' }">Reboot</a>);
-
-            $action = qq(
-                <div class="btn-group" role="group" aria-label="...">
-                    $query
-                    $update
-                    $reboot
-                </div>
-            );
-
-            my $row = { hostname => "$$worker{host} [$active]", status => $status, action => $action };
-            push(@workers, $row);
-        }
-        else {
-            my $reboot = $c->url_for("/reboot?hostname=$$worker{host}")->to_abs;
-            my $query = $c->url_for("/query?hostname=$$worker{host}")->to_abs;
-
-            $query = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Query: Are you sure')) { location ='$query' }">Query</a>);
-            $reboot = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { location ='$reboot' }">Reboot</a>);
-
-            my $action = qq(
-                <div class="btn-group" role="group" aria-label="...">
-                    $query
-                    $reboot
-                </div>
-            );
-
-            my $row = { hostname => "$$worker{host} [0]", status => "No Results", action => $action };
-            push(@workers, $row);
-        }
+        my $row = { id => $box->{id}, hostname => "$$box{hostname}", status => "No Results", action => $action };
+        push(@boxen, $row);
     }
 
-    $c->render(template => 'boxen', workers => \@workers, now => scalar(localtime(time)));
+    $c->render(template => "boxen", boxen => \@boxen, now => scalar(localtime(time)));
+
+    return;
 };
 
-get '/query' => sub {
+get "/v1/remote/:task/:box_id" => sub {
+    my $c = shift->render_later;
+
+    $c->inactivity_timeout(3600);
+
+    my $task = $c->param("task");
+    my $box_id = $c->param("box_id");
+
+    my $box = $c->sql->db->query("SELECT * FROM manager WHERE id = ?", $box_id)->hash;
+
+    unless ($box) {
+        $c->render(json => { message => "Box not found: $box_id" });
+
+        return;
+    }
+
+    $c->ua->post("$box->{url}/v1/task" => json => { api_key => $box->{api_key}, task => $task } => sub {
+        my ($ua, $tx) = @_;
+
+        if ($tx->success) {
+            $c->render(json => $tx->res->json);
+        } else {
+            $c->render(json => { success => 0, message => "Error: " . $tx->error->code });
+        }
+    });
+};
+
+post '/v1/task' => sub {
     my $c = shift;
 
-    my $hostname = $c->param("hostname");
+    $c->inactivity_timeout(3600);
 
-    $c->app->minion->enqueue($hostname => ["query"]) if $hostname;
+    my $task = $c->req->json->{task};
 
-    $c->flash(message => "Query scheduled: $hostname");
+    my $sub = \&{ "Patches::Task::$task" };
+       
+    $sub->($c, $task);
 
-    my $url = $c->url_for('/boxen');
-    return($c->redirect_to($url));
-};
+    if ("query" eq $task) {
+        my $hash = $c->sql->db->query("select status from status order by id desc limit 1")->hash;
 
-get '/update' => sub {
-    my $c = shift;
+        $c->render(json => {success => 1, message => $hash->{status}});
+    }
+    else {
+        $c->render(json => {success => 0, message => "We made it to else"});
+    }
+} => "api_task";
 
-    my $hostname = $c->param("hostname");
-
-    $c->app->minion->enqueue($hostname => ["update"]) if $hostname;
-
-    $c->flash(message => "Update scheduled: $hostname");
-
-    my $url = $c->url_for('/boxen');
-    return($c->redirect_to($url));
-};
-
-get '/reboot' => sub {
-    my $c = shift;
-
-    my $hostname = $c->param("hostname");
-
-    $c->app->minion->enqueue($hostname => ["reboot"]) if $hostname;
-
-    $c->flash(message => "Reboot scheduled: $hostname");
-
-    my $url = $c->url_for('/boxen');
-    return($c->redirect_to($url));
-};
+push @{app->commands->namespaces}, 'Patches::Command';
 
 app->start;
 
@@ -355,24 +391,29 @@ __DATA__
     </div>
 % }
 
-% if (stash('workers') && scalar @{ stash('workers') }) {
+% if (stash('boxen') && scalar @{ stash('boxen') }) {
     <table class="table table-hover">
       <thead>
         <tr>
           <th>#</th>
           <th>Hostname</th>
-          <th>Status</th>
+          <th><img src="refresh.png" width="12px" id="refresh"> Status</th>
           <th>Action</th>
         </tr>
       </thead>
       <tbody>
 
-    % for (my ($i, $j) = (0, 1); $i < @{ stash('workers') }; ++$i, ++$j) {
+    % for (my ($i, $j) = (0, 1); $i < @{ stash('boxen') }; ++$i, ++$j) {
+
+    % my $idx = stash('boxen')->[$i]{id};
     <tr>
       <th scope="row"><%= $j %></th>
-      <td><%= stash('workers')->[$i]{hostname} %></td>
-      <td><%= stash('workers')->[$i]{status} %></td>
-      <td><%== stash('workers')->[$i]{action} %></td>
+      <td><%= stash('boxen')->[$i]{hostname} %></td>
+      <td>
+            <img src="refresh.png" width="12px" data-idx="<%= $idx %>" id="refresh_<%= $idx %>"> 
+            <span id="status_<%= $idx %>"> <%= stash('boxen')->[$i]{status} %> </span>
+      </td>
+      <td><%== stash('boxen')->[$i]{action} %></td>
     </tr>
    % }
   </tbody>
@@ -380,3 +421,54 @@ __DATA__
 % } else {
    Nothing found.
 % }
+
+<script>
+    $("img[id^='refresh_']").on("click", function (e) {
+        var idx = $(this).data('idx');
+
+        $('#refresh_' + idx).attr("src", "spinner.gif");
+        $('#status_' + idx).html('');
+
+        $.getJSON("/v1/remote/query/" + idx, function(data) {
+            $('#refresh_' + idx).attr("src", "refresh.png");
+
+            $('#status_' + idx).html(data.message);
+        });
+    });
+</script>
+
+@@ spinner.gif (base64)
+
+R0lGODlhEAAQAPIAAP///wAAAMLCwkJCQgAAAGJiYoKCgpKSkiH/C05FVFNDQVBFMi4wAw
+EAAAAh/hpDcmVhdGVkIHdpdGggYWpheGxvYWQuaW5mbwAh+QQJCgAAACwAAAAAEAAQAAAD
+Mwi63P4wyklrE2MIOggZnAdOmGYJRbExwroUmcG2LmDEwnHQLVsYOd2mBzkYDAdKa+dIAA
+Ah+QQJCgAAACwAAAAAEAAQAAADNAi63P5OjCEgG4QMu7DmikRxQlFUYDEZIGBMRVsaqHwc
+tXXf7WEYB4Ag1xjihkMZsiUkKhIAIfkECQoAAAAsAAAAABAAEAAAAzYIujIjK8pByJDMlF
+YvBoVjHA70GU7xSUJhmKtwHPAKzLO9HMaoKwJZ7Rf8AYPDDzKpZBqfvwQAIfkECQoAAAAs
+AAAAABAAEAAAAzMIumIlK8oyhpHsnFZfhYumCYUhDAQxRIdhHBGqRoKw0R8DYlJd8z0fMD
+gsGo/IpHI5TAAAIfkECQoAAAAsAAAAABAAEAAAAzIIunInK0rnZBTwGPNMgQwmdsNgXGJU
+lIWEuR5oWUIpz8pAEAMe6TwfwyYsGo/IpFKSAAAh+QQJCgAAACwAAAAAEAAQAAADMwi6IM
+KQORfjdOe82p4wGccc4CEuQradylesojEMBgsUc2G7sDX3lQGBMLAJibufbSlKAAAh+QQJ
+CgAAACwAAAAAEAAQAAADMgi63P7wCRHZnFVdmgHu2nFwlWCI3WGc3TSWhUFGxTAUkGCbtg
+ENBMJAEJsxgMLWzpEAACH5BAkKAAAALAAAAAAQABAAAAMyCLrc/jDKSatlQtScKdceCAjD
+II7HcQ4EMTCpyrCuUBjCYRgHVtqlAiB1YhiCnlsRkAAAOwAAAAAAAAAAAA==
+
+@@ refresh.png (base64)
+
+iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAQAAADZc7J/AAAABGdBTUEAALGPC/xhBQAAAC
+BjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QA/4eP
+zL8AAAJSSURBVEjH7ZXPaxNREMc/m0TdJG5Km1ZtDDQBT4LeBEMViulFEcRfUMSDHlUsev
+EPqL8OelQP9cdFe/BexaKhAWsttRcVBHvKDzVK2oM0rTHJ7nrI7mb37a4exJvzLo+Z+X7f
+mzdvZuAvRfqNTUYhDNRZoY7usgfR0bwJeskwxE4SRIA1KrwnzyxVm0+UEzzhixvcwxnmqa
+MLq84C5+k1vMJcY5EBNzzDc5ousLlaTLMXkBmjQVEkkDhO0QFoUmOFhkNX5hRj/ECnRBpC
+NoJj3GKTsV9jgRzvqKITZztDZOgCIMkdgqx3X343BeMMjVmOoDisYfYxKQRXIt1x6OaZFe
+cDEp65iXEDVSQwQzhK1tg95CLfPQk0ZL9/o5A3WOdI+nyrLm67QkiZxn4+Grke8YF3M05L
+SGqBATOEKpOMEmKKKU/4Bi5wgK9oVsIlAnyj1amFGFmi5Kh4EqwjSRDNVg8BJJp8psV/QQ
+JCbHbURFt0KjQ9MX0Mo/GCZVOxlVeUKNhWkSLXCXvCNzKBhso9ZFOVEopYR+ORVZeiHGYV
+HZ1PbDNVaUoOuMp9enzg/bw0vOat7uQiuGtUvltijFs1e7atCng8Xs0HvoWbnDb2eR53DO
+INmjxlmIgDrHCIGTSrDveYBnv6fqISAULsZ5A5pvnAMtDHDrLssiiXuMSMnb19gzqXOSnk
+o0GNmtAFyoyIgacp0+AKYf7c1nMMuh8nxSJXrW/jP1jecI64CJaABAeZYNWmjVujLUp7tL
+0lz2uW3KdLtJuD6pE2GQUZc7j+K/kF0IQvT3OT8IwAAAAldEVYdGRhdGU6Y3JlYXRlADIw
+MTYtMDEtMDlUMTc6NTA6MTgtMDY6MDCfTTKdAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDE1LT
+A0LTIxVDA0OjM2OjQ5LTA1OjAwd4E40QAAABl0RVh0U29mdHdhcmUAQWRvYmUgSW1hZ2VS
+ZWFkeXHJZTwAAAAASUVORK5CYII=

@@ -1,5 +1,6 @@
 {
-    pg_string => 'postgresql://username:password@127.0.0.1/patches',
+    sqlite_string => 'sqlite:db/patches.db',
     secret => '7cd77588-5451-4460-a3ae-2f4b40f2196e',
-    password => '12345',
+    api_key => '1-2-3-4-5-6',
+    password => '123456',
 };
