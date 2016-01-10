@@ -21,4 +21,4 @@
 
     2. Must have 'sudo' rights.
 
-    <video controls="controls" width="800" height="600" src="http://bmedley.org/patches.mov"></video>
+    [![Patches movie](http://share.gifyoutube.com/KzB6Gb.gif)](http://bmedley.org/patches.mov)
