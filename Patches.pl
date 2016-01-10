@@ -176,6 +176,7 @@ app->secrets([app->config->{secret}]);
 plugin AccessLog => {log => app->home->rel_file('log/access.log'), format => '%h %l %u %t "%r" %>s %b %D "%{Referer}i" "%{User-Agent}i"'};
 
 plugin qw(Bootstrap3);
+plugin qw(FontAwesome4);
 
 helper sql => sub { state $sql = Mojo::SQLite->new(app->config->{sqlite_string}) };
 
@@ -254,7 +255,7 @@ get '/boxen' => sub {
         my $reboot = $c->url_for("/reboot?box_id=$$box{id}")->to_abs;
         my $query = $c->url_for("/query?box_id=$$box{id}")->to_abs;
 
-        $query = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Query: Are you sure')) { location ='$query' }">Query</a>);
+        $query = qq(<a href="#" class="btn btn-primary has-spinner" role="button" onclick="if (confirm('Query: Are you sure')) { boxenQuery(this, $box->{id}) }"><span class="spinner"><i class="fa fa-spinner fa-spin"></i></span> Query</a>);
         $reboot = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { location ='$reboot' }">Reboot</a>);
 
         my $action = qq(
@@ -332,6 +333,7 @@ __DATA__
   <head>
     %= asset "bootstrap.css"
     %= asset "bootstrap.js"
+    %= asset "font-awesome4.css"
 
     <title>Patches</title>
   </head>
@@ -344,7 +346,44 @@ __DATA__
           padding: 40px 15px;
           text-align: center;
         }
+
+        .spinner {
+          display: inline-block;
+          opacity: 0;
+          width: 0;
+
+          -webkit-transition: opacity 0.25s, width 0.25s;
+          -moz-transition: opacity 0.25s, width 0.25s;
+          -o-transition: opacity 0.25s, width 0.25s;
+          transition: opacity 0.25s, width 0.25s;
+        }
+
+        .has-spinner.active {
+          cursor:progress;
+        }
+
+        .has-spinner.active .spinner {
+          opacity: 1;
+          width: auto; /* This doesn't work, just fix for unkown width elements */
+        }
+
+        .has-spinner.btn-mini.active .spinner {
+            width: 10px;
+        }
+
+        .has-spinner.btn-small.active .spinner {
+            width: 13px;
+        }
+
+        .has-spinner.btn.active .spinner {
+            width: 16px;
+        }
+
+        .has-spinner.btn-large.active .spinner {
+            width: 19px;
+        }
     </style>
+
     <nav class="navbar navbar-inverse navbar-fixed-top">
       <div class="container">
         <div class="navbar-header">
@@ -410,8 +449,8 @@ __DATA__
       <th scope="row"><%= $j %></th>
       <td><%= stash('boxen')->[$i]{hostname} %></td>
       <td>
-            <img src="refresh.png" width="12px" data-idx="<%= $idx %>" id="refresh_<%= $idx %>"> 
-            <span id="status_<%= $idx %>"> <%= stash('boxen')->[$i]{status} %> </span>
+            <img style="display:none" src="spinner.gif" width="12px" data-idx="<%= $idx %>" id="refresh_<%= $idx %>"> 
+            <span data-idx="<%= $idx %>" id="status_<%= $idx %>"> <%= stash('boxen')->[$i]{status} %> </span>
       </td>
       <td><%== stash('boxen')->[$i]{action} %></td>
     </tr>
@@ -436,8 +475,21 @@ __DATA__
     function refreshStatus(elem) {
         var idx = $(elem).data('idx');
 
-        $('#refresh_' + idx).attr("src", "spinner.gif");
-        $('#status_' + idx).html('');
+        $('#status_' + idx).hide();
+        $('#refresh_' + idx).show();
+
+        $.getJSON("/v1/remote/query/" + idx, function(data) {
+            $('#refresh_' + idx).attr("src", "refresh.png");
+
+            $('#status_' + idx).html(data.message);
+
+            $('#refresh_' + idx).hide();
+            $('#status_' + idx).show();
+        });
+    }
+
+    function boxenQuery(elem, idx) {
+        $(elem).toggleClass('active');
 
         $.getJSON("/v1/remote/query/" + idx, function(data) {
             $('#refresh_' + idx).attr("src", "refresh.png");
