@@ -54,7 +54,9 @@ sub reboot {
     my $c = shift;
 
     eval {
-        my $ret = system("/usr/bin/sudo /sbin/init 6");
+        my $system = "/usr/bin/sudo /sbin/init 6";
+        $c->app->log->debug($system);
+        my $ret = system($system);
 
         my $exit = $?;
         my $exit_ret = $? >> 8;
@@ -90,7 +92,9 @@ sub query {
         (undef, $output) = tempfile("yum_query_stdout_XXXXXX", TMPDIR => 1, UNLINK => 0);
         (undef, $errput) = tempfile("yum_query_stderr_XXXXXX", TMPDIR => 1, UNLINK => 0);
 
-        my $ret = system("/usr/bin/yum check-update 1>$output 2>$errput");
+        my $system = "/usr/bin/yum check-update 1>$output 2>$errput";
+        $c->app->log->debug($system);
+        my $ret = system($system);
 
         my $exit = $?;
         my $exit_ret = $? >> 8;
@@ -135,7 +139,9 @@ sub update {
         (undef, $output) = tempfile("yum_update_stdout_XXXXXX", TMPDIR => 1, UNLINK => 0);
         (undef, $errput) = tempfile("yum_update_stderr_XXXXXX", TMPDIR => 1, UNLINK => 0);
 
-        my $ret = system("/usr/bin/sudo /usr/bin/yum -y update 1>$output 2>$errput");
+        my $system = "/usr/bin/sudo /usr/bin/yum -y update 1>$output 2>$errput";
+        $c->app->log->debug($system);
+        my $ret = system($system);
 
         my $exit = $?;
         my $exit_ret = $? >> 8;
@@ -452,9 +458,9 @@ __DATA__
     }
 
     function boxenTask(elem, idx, task) {
-        if ("reboot" === task) {
+        if ("reboot" === task || "update" === task) {
             $.ajax({
-              url: "/v1/remote/reboot/" + idx
+              url: "/v1/remote/" + task + "/" + idx
             });
         }
         else {
