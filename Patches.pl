@@ -156,10 +156,10 @@ sub update {
         my $err = $@;
         chomp($err);
 
-        $c->finish({ status => $err, stdout => slurp($output), stderr => slurp($errput) });
+        $c->app->sql->db->query('INSERT INTO status (status, stdout, stderr) VALUES (?, ?, ?)', $err, slurp($output), slurp($errput));
     }
     else {
-        $c->finish({ status => "Yum finished", stdout => slurp($output), stderr => slurp($errput) });
+        $c->app->sql->db->query('INSERT INTO status (status, stdout, stderr) VALUES (?, ?, ?)', "Yum finished", slurp($output), slurp($errput));
     }
 }
 
@@ -251,15 +251,16 @@ get '/boxen' => sub {
     my @boxen = ();
 
     foreach my $box (@{ $boxen }) {
-        my $reboot = $c->url_for("/reboot?box_id=$$box{id}")->to_abs;
-        my $query = $c->url_for("/query?box_id=$$box{id}")->to_abs;
+        my ($reboot, $query, $update);
 
         $query = qq(<a href="#" data-idx="$box->{id}" class="btn btn-primary" role="button" onclick="boxenTask(this, $box->{id}, 'query')">Query</a>);
+        $update = qq(<a href="#" data-idx="$box->{id}" class="btn btn-primary" role="button" onclick="if (confirm('Update: Are you sure')) { boxenTask(this, $box->{id}, 'update') }">Update</a>);
         $reboot = qq(<a href="#" data-idx="$box->{id}" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { boxenTask(this, $box->{id}, 'reboot') }">Reboot</a>);
 
         my $action = qq(
             <div class="btn-group" role="group" aria-label="...">
                 $query
+		$update
                 $reboot
             </div>
         );
@@ -312,7 +313,7 @@ post '/v1/task' => sub {
        
     $sub->($c, $task);
 
-    if ("query" eq $task) {
+    if ("query" eq $task || "update" eq $task) {
         my $hash = $c->sql->db->query("select status from status order by id desc limit 1")->hash;
 
         $c->render(json => {success => 1, message => $hash->{status}});
