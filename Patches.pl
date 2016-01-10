@@ -423,8 +423,18 @@ __DATA__
 % }
 
 <script>
+    $("#refresh").on("click", function (e) {
+        $("img[id^='refresh_']").each(function (e) {
+            refreshStatus(this);
+        });
+    });
+
     $("img[id^='refresh_']").on("click", function (e) {
-        var idx = $(this).data('idx');
+        refreshStatus(this);
+    });
+
+    function refreshStatus(elem) {
+        var idx = $(elem).data('idx');
 
         $('#refresh_' + idx).attr("src", "spinner.gif");
         $('#status_' + idx).html('');
@@ -434,7 +444,7 @@ __DATA__
 
             $('#status_' + idx).html(data.message);
         });
-    });
+    }
 </script>
 
 @@ spinner.gif (base64)
