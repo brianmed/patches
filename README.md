@@ -20,3 +20,5 @@
        and hopefully BSD and Windows (maybe?).
 
     2. Must have 'sudo' rights.
+
+    <video controls="controls" width="800" height="600" src="http://bmedley.org/patches.mov"></video>
