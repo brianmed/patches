@@ -21,4 +21,4 @@
 
     2. Must have 'sudo' rights.
 
-<iframe width="800" height="600" src="http://bmedley.org/patches.mov" frameborder="0" allowfullscreen></iframe>
+[![Patches](http://bmedley.org/patches_screen.gif)](http://bmedley.org/patches_screen.gif)
