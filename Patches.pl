@@ -54,7 +54,7 @@ sub reboot {
     my $c = shift;
 
     eval {
-        my $system = "/usr/bin/sudo /sbin/shutdown -t4 -r now";
+        my $system = "/usr/bin/sudo /sbin/shutdown -r now";
         $c->app->log->debug($system);
         my $ret = system($system);
 
@@ -63,10 +63,10 @@ sub reboot {
     
         if ($ret) {
             if ($exit == -1) {
-                die("failed to execute init 6: $!\n");
+                die("failed to execute shutdown: $!\n");
             }
             else {
-                die(sprintf("init 6 exited with value %d\n", $exit_ret));
+                die(sprintf("shutdown exited with value %d\n", $exit_ret));
             }
         }
     };
