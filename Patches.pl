@@ -54,7 +54,7 @@ sub reboot {
     my $c = shift;
 
     eval {
-        my $system = "/usr/bin/sudo /sbin/init 6";
+        my $system = "/usr/bin/sudo /sbin/shutdown -t4 -r now";
         $c->app->log->debug($system);
         my $ret = system($system);
 
