@@ -21,4 +21,4 @@
 
     2. Must have 'sudo' rights.
 
-[![Patches movie](http://share.gifyoutube.com/KzB6Gb.gif)](http://bmedley.org/patches.mov)
+[![Patches movie](http://bmedley.org/patches.mov)](http://bmedley.org/patches.mov)
