@@ -21,4 +21,4 @@
 
     2. Must have 'sudo' rights.
 
-[![Patches movie](http://bmedley.org/patches.mov)](http://bmedley.org/patches.mov)
+<iframe width="800" height="600" src="http://bmedley.org/patches.mov" frameborder="0" allowfullscreen></iframe>
