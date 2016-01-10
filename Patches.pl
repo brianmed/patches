@@ -176,7 +176,6 @@ app->secrets([app->config->{secret}]);
 plugin AccessLog => {log => app->home->rel_file('log/access.log'), format => '%h %l %u %t "%r" %>s %b %D "%{Referer}i" "%{User-Agent}i"'};
 
 plugin qw(Bootstrap3);
-plugin qw(FontAwesome4);
 
 helper sql => sub { state $sql = Mojo::SQLite->new(app->config->{sqlite_string}) };
 
@@ -255,8 +254,8 @@ get '/boxen' => sub {
         my $reboot = $c->url_for("/reboot?box_id=$$box{id}")->to_abs;
         my $query = $c->url_for("/query?box_id=$$box{id}")->to_abs;
 
-        $query = qq(<a href="#" class="btn btn-primary has-spinner" role="button" onclick="if (confirm('Query: Are you sure')) { boxenQuery(this, $box->{id}) }"><span class="spinner"><i class="fa fa-spinner fa-spin"></i></span> Query</a>);
-        $reboot = qq(<a href="#" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { location ='$reboot' }">Reboot</a>);
+        $query = qq(<a href="#" data-idx="$box->{id}" class="btn btn-primary" role="button" onclick="boxenTask(this, $box->{id}, 'query')">Query</a>);
+        $reboot = qq(<a href="#" data-idx="$box->{id}" class="btn btn-primary" role="button" onclick="if (confirm('Reboot: Are you sure')) { boxenTask(this, $box->{id}, 'reboot') }">Reboot</a>);
 
         my $action = qq(
             <div class="btn-group" role="group" aria-label="...">
@@ -296,6 +295,7 @@ get "/v1/remote/:task/:box_id" => sub {
         if ($tx->success) {
             $c->render(json => $tx->res->json);
         } else {
+            $c->app->log->debug($c->dumper($tx));
             $c->render(json => { success => 0, message => "Error: " . $tx->error->code });
         }
     });
@@ -345,42 +345,6 @@ __DATA__
         .starter-template {
           padding: 40px 15px;
           text-align: center;
-        }
-
-        .spinner {
-          display: inline-block;
-          opacity: 0;
-          width: 0;
-
-          -webkit-transition: opacity 0.25s, width 0.25s;
-          -moz-transition: opacity 0.25s, width 0.25s;
-          -o-transition: opacity 0.25s, width 0.25s;
-          transition: opacity 0.25s, width 0.25s;
-        }
-
-        .has-spinner.active {
-          cursor:progress;
-        }
-
-        .has-spinner.active .spinner {
-          opacity: 1;
-          width: auto; /* This doesn't work, just fix for unkown width elements */
-        }
-
-        .has-spinner.btn-mini.active .spinner {
-            width: 10px;
-        }
-
-        .has-spinner.btn-small.active .spinner {
-            width: 13px;
-        }
-
-        .has-spinner.btn.active .spinner {
-            width: 16px;
-        }
-
-        .has-spinner.btn-large.active .spinner {
-            width: 19px;
         }
     </style>
 
@@ -479,8 +443,6 @@ __DATA__
         $('#refresh_' + idx).show();
 
         $.getJSON("/v1/remote/query/" + idx, function(data) {
-            $('#refresh_' + idx).attr("src", "refresh.png");
-
             $('#status_' + idx).html(data.message);
 
             $('#refresh_' + idx).hide();
@@ -488,14 +450,15 @@ __DATA__
         });
     }
 
-    function boxenQuery(elem, idx) {
-        $(elem).toggleClass('active');
-
-        $.getJSON("/v1/remote/query/" + idx, function(data) {
-            $('#refresh_' + idx).attr("src", "refresh.png");
-
-            $('#status_' + idx).html(data.message);
-        });
+    function boxenTask(elem, idx, task) {
+        if ("reboot" === task) {
+            $.ajax({
+              url: "/v1/remote/reboot/" + idx
+            });
+        }
+        else {
+            refreshStatus(elem);
+        }
     }
 </script>
 
