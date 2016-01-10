@@ -21,4 +21,6 @@
 
     2. Must have 'sudo' rights.
 
+### Example session
+
 [![Patches](http://bmedley.org/patches_screen.gif)](http://bmedley.org/patches_screen.gif)
